@@ -1,71 +1,55 @@
-from lxml import html
+from lxml import html,etree
 import itertools
 import requests
 import argparse
+
+def clean(txt):
+    return txt.strip().replace("\n", "")
 
 class UrbanDictionaryDefinitionStrategy(object):
     def __init__(self, tr_1, tr_2):
         self.tr_1 = tr_1
         self.tr_2 = tr_2
 
-    def standardize_text(self, txt):
-        return txt.strip().replace("\n", "")
-
+   
     def extract(self):
         return {
             'id'            : self.get_id(),
             'phrase'        : self.get_phrase(),
             'definition'    : self.get_definition(),
             'example'       : self.get_example(),
-            'thumbs_up'     : self.get_thumbs_up(),
-            'thumbs_down'   : self.get_thumbs_down(),
             'tags'          : self.get_tags(),
-            'author'        : self.get_author(),
-            'date_added'    : self.get_date_added(),
-
         }
 
     def get_id(self):
         td_els = self.tr_1.xpath('./td[@class="word"]')
         if not td_els:
             return None  
-        return self.standardize_text(td_els[0].get('data-defid'))
+        return clean(td_els[0].get('data-defid'))
     
     def get_phrase(self):
         span_els = self.tr_1.xpath('./td[@class="word"]/span')
         if not span_els:
             return None
-        return self.standardize_text(span_els[0].text)
+        return clean(span_els[0].text)
 
     def get_definition(self):
         div_els = self.tr_2.xpath('./td[@class="text"]/div[@class="definition"]')
         if not div_els:
             return None
-        return self.standardize_text(div_els[0].text)
+        return clean(div_els[0].text)
 
     def get_example(self):
         div_els = self.tr_2.xpath('./td[@class="text"]/div[@class="example"]')
         if not div_els:
             return None
-        return self.standardize_text(div_els[0].text)
-
-    def get_thumbs_up(self):
-        return None    
-
-    def get_thumbs_down(self):
-        return None
-
-    def get_author(self):
-        return None
-
-    def get_date_added(self):
-        return None
+        return clean(div_els[0].text)
 
     def get_tags(self):
         a_els = self.tr_2.xpath('./td[@class="text"]/div[@class="greenery"]/span[@class="tags"]/a')
         if not a_els:
             return []
-        return [self.standardize_text(a.text) for a in a_els]
+        return [clean(a.text) for a in a_els]
 
 class UrbanDictionaryPhraseStrategy(object):
     def __init__(self, html_text):
@@ -95,10 +79,14 @@ class UrbanDictionaryPhraseStrategy(object):
         return definitions
 
     def get_see_also_links(self):
-        pass
+        a_els = self.parsed.xpath('//div[@id="nearby_titles"]/ul[@class="tags"]/li/a')
+        return [clean(a.text) for a in a_els]
 
     def get_next_page_link(self):
-        pass
+        next_els = self.parsed.xpath('//div[@class="pagination"]/li[@class="next"/a')
+        if not next_els:
+            return None
+        return next_els[0].get('href')
 
 class Crawler(object):
     @classmethod
