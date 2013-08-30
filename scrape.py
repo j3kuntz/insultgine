@@ -4,13 +4,14 @@ import requests
 import argparse
 
 def clean(txt):
+    if txt is None:
+        return ""
     return txt.strip().replace("\n", "")
 
 class UrbanDictionaryDefinitionStrategy(object):
     def __init__(self, tr_1, tr_2):
         self.tr_1 = tr_1
         self.tr_2 = tr_2
-
    
     def extract(self):
         return {
