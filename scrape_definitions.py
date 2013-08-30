@@ -2,6 +2,8 @@ from lxml import html,etree
 import itertools
 import requests
 import argparse
+import sqlite3
+import contextlib
 
 def clean(txt):
     if txt is None:
@@ -61,7 +63,7 @@ class UrbanDictionaryPhraseStrategy(object):
     def extract(self):
         return {
             'definitions'       : self.get_definitions(),
-            'see_also_links'    : self.get_see_also_links(),
+            'next_page_link'    : self.get_next_page_link(),
         }
 
     def get_definitions(self):
@@ -79,19 +81,17 @@ class UrbanDictionaryPhraseStrategy(object):
             definitions.append(strategy.extract())
         return definitions
 
-    def get_see_also_links(self):
-        a_els = self.parsed.xpath('//div[@id="nearby_titles"]/ul[@class="tags"]/li/a')
-        return [clean(a.text) for a in a_els]
-
     def get_next_page_link(self):
-        next_els = self.parsed.xpath('//div[@class="pagination"]/li[@class="next"/a')
+        next_els = self.parsed.xpath('//div[@class="pagination"]//li[@class="next"]/a')
         if not next_els:
             return None
-        return next_els[0].get('href')
+        rel_link = next_els[0].get('href').strip()
+        return "http://www.urbandictionary.com%s" % rel_link
 
 class Crawler(object):
     @classmethod
     def scrape_page(cls, page_url):
+        print page_url
         request         = requests.get(page_url)
         strategy        = UrbanDictionaryPhraseStrategy(request.content)
         extracted_data  = strategy.extract()
@@ -99,10 +99,31 @@ class Crawler(object):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--url', type=str)
-    args = parser.parse_args()
-    from pprint import pprint
-    pprint(Crawler.scrape_page(args.url))
+    parser.add_argument('--url_file', type=str)
+    args= parser.parse_args()
+    url_file_handle = args.url_file
+
+    seed_def_urls = []
+    with open(args.url_file, "r") as in_file:
+        for line in in_file:
+            url = line.strip().replace("\n","")
+            seed_def_urls.append(url)
+    
+    for def_url in seed_def_urls:
+        urls = [def_url]
+        definitions = []
+        while urls:
+            cur_url = urls[0]
+            extracted_data = Crawler.scrape_page(cur_url)
+            _defs = extracted_data['definitions']
+            next_link = extracted_data['next_page_link']
+            del urls[0]
+            if next_link:
+                urls.append(next_link)
+            definitions.extend(_defs)
+
+
+
 
 if __name__== "__main__":
     main()
