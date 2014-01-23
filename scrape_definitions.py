@@ -2,8 +2,8 @@ from lxml import html,etree
 import itertools
 import requests
 import argparse
-import sqlite3
 import contextlib
+import ujson
 
 def clean(txt):
     if txt is None:
@@ -11,9 +11,8 @@ def clean(txt):
     return txt.strip().replace("\n", "")
 
 class UrbanDictionaryDefinitionStrategy(object):
-    def __init__(self, tr_1, tr_2):
-        self.tr_1 = tr_1
-        self.tr_2 = tr_2
+    def __init__(self, word_el):
+        self.word_el = word_el
    
     def extract(self):
         return {
@@ -21,38 +20,54 @@ class UrbanDictionaryDefinitionStrategy(object):
             'phrase'        : self.get_phrase(),
             'definition'    : self.get_definition(),
             'example'       : self.get_example(),
-            'tags'          : self.get_tags(),
+            'likes'         : self.get_up_count(),
+            'dislikes'      : self.get_down_count(),
+            'author'        : self.get_author_name(),
+            'author_link'   : self.get_author_link(),
         }
 
     def get_id(self):
-        td_els = self.tr_1.xpath('./td[@class="word"]')
-        if not td_els:
-            return None  
-        return clean(td_els[0].get('data-defid'))
+        return clean(self.word_el.get('data-defid'))
     
     def get_phrase(self):
-        span_els = self.tr_1.xpath('./td[@class="word"]/span')
-        if not span_els:
-            return None
-        return clean(span_els[0].text)
+        span_els = self.word_el.xpath('.//div[@class="word"]/a')
+        return clean(span_els[0].text_content())
 
     def get_definition(self):
-        div_els = self.tr_2.xpath('./td[@class="text"]/div[@class="definition"]')
+        div_els = self.word_el.xpath('.//div[@class="definition"]')
         if not div_els:
             return None
-        return clean(div_els[0].text)
+        return clean(div_els[0].text_content())
 
     def get_example(self):
-        div_els = self.tr_2.xpath('./td[@class="text"]/div[@class="example"]')
+        div_els = self.word_el.xpath('.//div[@class="example"]')
         if not div_els:
             return None
-        return clean(div_els[0].text)
+        return clean(div_els[0].text_content())
 
-    def get_tags(self):
-        a_els = self.tr_2.xpath('./td[@class="text"]/div[@class="greenery"]/span[@class="tags"]/a')
-        if not a_els:
-            return []
-        return [clean(a.text) for a in a_els]
+    def get_up_count(self):
+        count_els = self.word_el.xpath('.//span[@class="up"]/span[@class="count"]')
+        if not count_els:
+            return None
+        return clean(count_els[0].text_content())
+
+    def get_down_count(self):
+        count_els = self.word_el.xpath('.//span[@class="down"]/span[@class="count"]')
+        if not count_els:
+            return None
+        return clean(count_els[0].text_content())
+
+    def get_author_name(self):
+        author_els = self.word_el.xpath('.//a[@class="author"]')
+        if not author_els:
+            return None
+        return clean(author_els[0].text_content())
+
+    def get_author_link(self):
+        author_els = self.word_el.xpath('.//a[@class="author"]')
+        if not author_els:
+            return None
+        return clean(author_els[0].get('href'))
 
 class UrbanDictionaryPhraseStrategy(object):
     def __init__(self, html_text):
@@ -67,17 +82,15 @@ class UrbanDictionaryPhraseStrategy(object):
         }
 
     def get_definitions(self):
-        td_els         = self.parsed.xpath('//td[@class="word"]')
-        definition_ids = [t.get('data-defid') for t in td_els]
+        box_els         = self.parsed.xpath('//div[@class="box"]')
+        definition_ids = [b.get('data-defid') for b in box_els]
         definitions    = []
         for def_id in definition_ids:
-            td_1 = self.parsed.xpath('//td[@data-defid="%s"]' % def_id)
-            td_2 = self.parsed.xpath('//td[@id="entry_%s"]' % def_id)
-            if not td_1 or not td_2:
+            word = self.parsed.xpath('//div[@data-defid="%s"]' % def_id)
+            if not word:
                 continue
-            tr_1 = td_1[0].xpath('..')[0]
-            tr_2 = td_2[0].xpath('..')[0]
-            strategy = UrbanDictionaryDefinitionStrategy(tr_1, tr_2)
+            word = word[0]
+            strategy = UrbanDictionaryDefinitionStrategy(word)
             definitions.append(strategy.extract())
         return definitions
 
@@ -100,6 +113,7 @@ class Crawler(object):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--url_file', type=str)
+    parser.add_argument('--out_file', type=str)
     args= parser.parse_args()
     url_file_handle = args.url_file
 
@@ -109,21 +123,23 @@ def main():
             url = line.strip().replace("\n","")
             seed_def_urls.append(url)
     
-    for def_url in seed_def_urls:
-        urls = [def_url]
-        definitions = []
-        while urls:
-            cur_url = urls[0]
-            extracted_data = Crawler.scrape_page(cur_url)
-            _defs = extracted_data['definitions']
-            next_link = extracted_data['next_page_link']
-            del urls[0]
-            if next_link:
-                urls.append(next_link)
-            definitions.extend(_defs)
+    with open(args.out_file, "w") as outf_handle:
+        for def_url in seed_def_urls:
+            urls = [def_url]
+            definitions = []
+            while urls:
+                cur_url = urls[0]
+                extracted_data = Crawler.scrape_page(cur_url)
+                _defs = extracted_data['definitions']
+                next_link = extracted_data['next_page_link']
+                del urls[0]
+                if next_link:
+                    urls.append(next_link)
+                definitions.extend(_defs)
 
-
-
+                for definition in definitions:
+                    outf_handle.write(ujson.dumps(definition))
+                    outf_handle.write("\n")
 
 if __name__== "__main__":
     main()
